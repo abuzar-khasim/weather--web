@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pro Weather Dashboard — Ultimate</title>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg-grad: linear-gradient(135deg,#74ebd5,#ACB6E5);
+    --glass: rgba(255,255,255,0.14);
+    --glass-strong: rgba(255,255,255,0.22);
+    --text: #ffffff;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Poppins',sans-serif}
+  html,body{height:100%}
+  body{
+    min-height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:flex-start;
+    padding:28px;
+    background:var(--bg-grad);
+    transition: background 900ms ease;
+    color:var(--text);
+  }
+  body.dark{--bg-grad: linear-gradient(135deg,#0f1724,#243447)}
+
+  /* Canvas layers for particles - behind UI */
+  canvas.particles{
+    position:fixed;left:0;top:0;width:100%;height:100%;pointer-events:none;z-index:-2;
+  }
+
+  .app{
+    width:100%;max-width:980px;background:var(--glass);backdrop-filter:blur(12px);
+    border-radius:18px;padding:22px;box-shadow:0 12px 40px rgba(0,0,0,0.25);
+    color:var(--text);position:relative;overflow:hidden;
+  }
+
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  h1{font-size:20px}
+  .controls{display:flex;gap:8px;align-items:center}
+  input[type="text"]{
+    padding:10px 12px;border-radius:10px;border:none;outline:none;width:260px;background:rgba(255,255,255,0.06);
+    color:var(--text)
+  }
+  button{background:linear-gradient(135deg,#0072ff,#00c6ff);border:none;padding:10px 14px;border-radius:10px;color:#fff;cursor:pointer;font-weight:600}
+  button.ghost{background:transparent;border:1px solid rgba(255,255,255,0.12)}
+  .toggle-mode{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,0.06);border:none;cursor:pointer}
+
+  main{display:grid;grid-template-columns: 1fr 360px;gap:18px;margin-top:18px}
+  @media (max-width:980px){ main{grid-template-columns:1fr} input[type="text"]{width:160px}}
+  
+  /* Left column: big weather card + forecast + chart */
+  .card{
+    background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+    border-radius:14px;padding:18px;
+  }
+
+  .current{
+    display:flex;align-items:center;gap:18px;
+  }
+  .current img{width:96px;height:96px}
+  .current .meta{display:flex;flex-direction:column;gap:4px}
+  .temp{font-size:38px;font-weight:700}
+  .condition{font-size:16px;text-transform:capitalize;opacity:0.95}
+  .loc{opacity:0.9;font-weight:600}
+
+  .details{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+  .detail{background:rgba(255,255,255,0.03);padding:8px 10px;border-radius:10px;font-size:14px;min-width:120px;text-align:center}
+
+  .forecast-row{display:flex;gap:10px;margin-top:14px;overflow-x:auto;padding-bottom:6px}
+  .day-card{min-width:110px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));padding:10px;border-radius:10px;text-align:center;transition:transform 250ms ease, box-shadow 250ms ease}
+  .day-card:hover{transform:translateY(-6px);box-shadow:0 10px 30px rgba(0,0,0,0.18)}
+  .day-card img{width:48px;height:48px}
+
+  #chart-container{margin-top:18px;background:rgba(255,255,255,0.02);padding:10px;border-radius:10px}
+
+  /* Right column: alerts & extras */
+  .side{display:flex;flex-direction:column;gap:12px}
+  .alerts{background:rgba(255,0,0,0.12);padding:10px;border-radius:10px;display:none}
+  .info-box{background:rgba(255,255,255,0.02);padding:12px;border-radius:10px}
+  .progress{height:10px;background:rgba(255,255,255,0.05);border-radius:8px;margin-top:6px;overflow:hidden}
+  .progress > i{display:block;height:100%;background:linear-gradient(90deg,#00c6ff,#0072ff);width:0%;transition:width 900ms ease}
+  .small{font-size:13px;opacity:0.9}
+
+  .loading{margin-top:10px;opacity:0.9}
+
+  /* Tooltip improvements (Chart.js will use this font color) */
+  canvas{max-width:100%}
+  
+  /* subtle entrance */
+  .fade-in{animation:fadein 600ms ease both}
+  @keyframes fadein{from{opacity:0; transform:translateY(6px)} to{opacity:1; transform:none}}
+</style>
+</head>
+
+<body>
+<!-- Canvas layers for animated particles -->
+<canvas id="particleCanvas" class="particles"></canvas>
+
+<div class="app">
+  <header>
+    <h1>🌦 Pro Weather Dashboard — Ultimate</h1>
+    <div class="controls">
+      <input id="cityInput" type="text" placeholder="Enter city (e.g. London)" />
+      <button onclick="getWeather()">Search</button>
+      <button onclick="getLocationWeather()" class="ghost">📍 My Location</button>
+      <button id="modeBtn" class="toggle-mode" title="Toggle dark/light">🌙</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <div id="loading" class="loading small"></div>
+
+      <div id="weatherInfo" class="fade-in" style="display:none">
+        <div class="current">
+          <img id="icon" src="" alt="icon">
+          <div class="meta">
+            <div class="temp" id="temperature"></div>
+            <div class="condition" id="condition"></div>
+            <div class="loc small" id="location"></div>
+          </div>
+        </div>
+
+        <div class="details fade-in" id="details">
+          <div class="detail"><div class="small">Feels like</div><div id="feelslike">—</div></div>
+          <div class="detail"><div class="small">Wind</div><div id="wind">—</div></div>
+          <div class="detail"><div class="small">Humidity</div><div id="humidity">—</div></div>
+          <div class="detail"><div class="small">UV Index</div><div id="uv">—</div></div>
+          <div class="detail"><div class="small">Sunrise</div><div id="sunrise">—</div></div>
+          <div class="detail"><div class="small">Sunset</div><div id="sunset">—</div></div>
+        </div>
+
+        <div class="forecast-row" id="forecast"></div>
+
+        <div id="chart-container"><canvas id="tempChart"></canvas></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div id="alerts" class="alerts"></div>
+
+      <div class="info-box fade-in">
+        <div class="small">Humidity</div>
+        <div class="progress"><i id="humidityBar" style="width:0%"></i></div>
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:13px">
+          <div>Low</div><div>High</div>
+        </div>
+      </div>
+
+      <div class="info-box fade-in">
+        <div class="small">UV Index</div>
+        <div style="font-weight:700;font-size:20px" id="uvCircle">—</div>
+        <div class="small">(Higher is stronger)</div>
+      </div>
+
+      <div class="info-box fade-in">
+        <div class="small">Extra</div>
+        <div id="extraInfo" style="margin-top:6px;font-size:14px">–</div>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ===============================
+   Configuration & utilities
+   =============================== */
+const apiKey = "463b884d905c4263942155621250111"; // your provided API key
+const particleCanvas = document.getElementById('particleCanvas');
+const pCtx = particleCanvas.getContext('2d');
+let particles = [];
+let particleMode = null; // 'rain' | 'snow' | 'sun' | 'clouds' | null
+
+// resize canvas to device
+function resizeCanvas(){
+  particleCanvas.width = innerWidth * devicePixelRatio;
+  particleCanvas.height = innerHeight * devicePixelRatio;
+  particleCanvas.style.width = innerWidth + 'px';
+  particleCanvas.style.height = innerHeight + 'px';
+  pCtx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+/* =======================================================
+   Particle system — lightweight canvas renderer for rain/snow
+   ======================================================= */
+function spawnRain(count){
+  particles = [];
+  for(let i=0;i<count;i++){
+    particles.push({
+      x: Math.random()*innerWidth,
+      y: Math.random()*innerHeight - innerHeight,
+      len: 8 + Math.random()*12,
+      vy: 400 + Math.random()*600, // px/sec
+      vx: -50 + Math.random()*100,
+      alpha: 0.2 + Math.random()*0.45
+    });
+  }
+}
+function spawnSnow(count){
+  particles = [];
+  for(let i=0;i<count;i++){
+    particles.push({
+      x: Math.random()*innerWidth,
+      y: Math.random()*innerHeight - innerHeight,
+      r: 1 + Math.random()*3.5,
+      vy: 20 + Math.random()*40,
+      vx: -20 + Math.random()*40,
+      sway: Math.random()*0.02 + 0.01,
+      baseX: Math.random()*innerWidth,
+      alpha: 0.6 + Math.random()*0.4
+    });
+  }
+}
+function spawnClouds(count){
+  // clouds are drawn as soft rectangles; re-use particles with flag
+  particles = [];
+  for(let i=0;i<count;i++){
+    particles.push({
+      x: Math.random()*innerWidth,
+      y: Math.random()*innerHeight*0.6,
+      w: 100 + Math.random()*220,
+      h: 40 + Math.random()*40,
+      vx: -5 + Math.random()*6,
+      alpha: 0.15 + Math.random()*0.25
+    });
+  }
+}
+function clearParticles(){
+  particles = [];
+}
+
+/* animation loop */
+let lastTime = 0;
+function particleLoop(t){
+  const dt = (t - lastTime) / 1000 || 0;
+  lastTime = t;
+  pCtx.clearRect(0,0,innerWidth,innerHeight);
+
+  if(particleMode === 'rain'){
+    pCtx.strokeStyle = 'rgba(174,194,224,0.8)';
+    pCtx.lineWidth = 1;
+    for(const p of particles){
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      if(p.y > innerHeight + 50 || p.x < -50 || p.x > innerWidth + 50){
+        p.x = Math.random()*innerWidth;
+        p.y = -10 - Math.random()*200;
+      }
+      pCtx.globalAlpha = p.alpha;
+      pCtx.beginPath();
+      pCtx.moveTo(p.x, p.y);
+      pCtx.lineTo(p.x + p.vx*0.02, p.y + p.len);
+      pCtx.stroke();
+    }
+    pCtx.globalAlpha = 1;
+  } else if(particleMode === 'snow'){
+    for(const p of particles){
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      // gentle sway
+      p.x = p.baseX + Math.sin(t * p.sway + p.r) * 20;
+      if(p.y > innerHeight + 10){
+        p.y = -10 - Math.random()*200;
+        p.baseX = Math.random()*innerWidth;
+      }
+      pCtx.globalAlpha = p.alpha;
+      pCtx.fillStyle = '#ffffff';
+      pCtx.beginPath();
+      pCtx.arc(p.x, p.y, p.r, 0, Math.PI*2);
+      pCtx.fill();
+    }
+    pCtx.globalAlpha = 1;
+  } else if(particleMode === 'clouds'){
+    for(const p of particles){
+      p.x += p.vx * dt;
+      if(p.x < -300) p.x = innerWidth + 100;
+      // draw soft cloud using several circles
+      pCtx.globalAlpha = p.alpha;
+      const grad = pCtx.createLinearGradient(p.x, p.y, p.x+p.w, p.y);
+      grad.addColorStop(0, 'rgba(255,255,255,0.14)');
+      grad.addColorStop(1, 'rgba(255,255,255,0.06)');
+      pCtx.fillStyle = grad;
+      pCtx.beginPath();
+      pCtx.ellipse(p.x, p.y, p.w*0.6, p.h, 0, 0, Math.PI*2);
+      pCtx.fill();
+      pCtx.beginPath();
+      pCtx.ellipse(p.x + p.w*0.35, p.y - p.h*0.3, p.w*0.5, p.h*0.8, 0, 0, Math.PI*2);
+      pCtx.fill();
+      pCtx.beginPath();
+      pCtx.ellipse(p.x - p.w*0.25, p.y - p.h*0.3, p.w*0.45, p.h*0.7, 0, 0, Math.PI*2);
+      pCtx.fill();
+    }
+    pCtx.globalAlpha = 1;
+  } else if(particleMode === 'sun'){
+    // subtle particles around sun (glow)
+    for(let i=0;i<30;i++){
+      const r = 90 + Math.sin(t/400 + i) * 6;
+      pCtx.globalAlpha = 0.03;
+      pCtx.fillStyle = '#fff59a';
+      pCtx.beginPath();
+      pCtx.arc(innerWidth*0.5 + Math.cos((t+i*20)/900)*80, 80 + Math.sin((t+i*40)/600)*6, r, 0, Math.PI*2);
+      pCtx.fill();
+    }
+    pCtx.globalAlpha = 1;
+  }
+
+  requestAnimationFrame(particleLoop);
+}
+requestAnimationFrame(particleLoop);
+
+/* ===============================
+   Smooth background gradient transitions
+   (tween between two CSS gradients)
+   =============================== */
+let currentGradient = getComputedStyle(document.documentElement).getPropertyValue('--bg-grad').trim();
+
+function lerpColor(a, b, t){
+  // not full gradient lerp, use preset gradients per weather type for simplicity
+  return t; // unused here; we'll set CSS gradient directly (smooth via transition)
+}
+
+function setGradientForCondition(cond){
+  // choose a target gradient
+  let target;
+  if(cond.includes('rain') || cond.includes('drizzle')) target = 'linear-gradient(135deg,#485563,#29323c)'; // moody rain
+  else if(cond.includes('snow') || cond.includes('blizzard')) target = 'linear-gradient(135deg,#E0EAFC,#CFDEF3)'; // icy
+  else if(cond.includes('sun') || cond.includes('clear')) target = 'linear-gradient(135deg,#f6d365,#fda085)'; // warm sun
+  else if(cond.includes('cloud') || cond.includes('overcast')) target = 'linear-gradient(135deg,#bdc3c7,#2c3e50)'; // clouds
+  else target = 'linear-gradient(135deg,#74ebd5,#ACB6E5)'; // default
+
+  // apply smoothly (CSS transition on body background)
+  document.body.style.background = target;
+}
+
+/* ===============================
+   Weather API fetch & UI logic
+   =============================== */
+const loadingEl = document.getElementById('loading');
+const weatherInfoEl = document.getElementById('weatherInfo');
+const iconEl = document.getElementById('icon');
+const temperatureEl = document.getElementById('temperature');
+const conditionEl = document.getElementById('condition');
+const locationEl = document.getElementById('location');
+const feelsEl = document.getElementById('feelslike');
+const windEl = document.getElementById('wind');
+const humidityEl = document.getElementById('humidity');
+const uvEl = document.getElementById('uv');
+const sunriseEl = document.getElementById('sunrise');
+const sunsetEl = document.getElementById('sunset');
+const forecastRow = document.getElementById('forecast');
+const alertsDiv = document.getElementById('alerts');
+const humidityBar = document.getElementById('humidityBar');
+const uvCircle = document.getElementById('uvCircle');
+const extraInfo = document.getElementById('extraInfo');
+
+let chartInstance = null;
+
+async function fetchWeather(query){
+  loadingEl.textContent = 'Fetching weather...';
+  weatherInfoEl.style.display = 'none';
+  try{
+    const res = await fetch(`https://api.weatherapi.com/v1/forecast.json?key=${apiKey}&${query}&days=7&aqi=yes&alerts=yes`);
+    const data = await res.json();
+
+    if(data.error){
+      loadingEl.textContent = '';
+      alert(data.error.message || 'Error fetching data');
+      return;
+    }
+    updateUI(data);
+  }catch(err){
+    console.error(err);
+    loadingEl.textContent = '';
+    alert('Unable to fetch weather. Check network or API key.');
+  }
+}
+
+/* Convert 24-hour time with am/pm formatting if needed */
+function formatTime(t){
+  return t; // API returns times like "06:12 AM" so we can display directly (or transform if needed)
+}
+
+function updateUI(data){
+  loadingEl.textContent = '';
+
+  const loc = data.location;
+  const cur = data.current;
+  const forecast = data.forecast.forecastday;
+
+  iconEl.src = 'https:' + cur.condition.icon;
+  temperatureEl.textContent = `${cur.temp_c}°C`;
+  conditionEl.textContent = cur.condition.text;
+  locationEl.textContent = `${loc.name}, ${loc.region ? loc.region + ', ' : ''}${loc.country}`;
+
+  feelsEl.textContent = `${cur.feelslike_c}°C`;
+  windEl.textContent = `${cur.wind_kph} km/h ${cur.wind_dir}`;
+  humidityEl.textContent = `${cur.humidity}%`;
+  uvEl.textContent = `${cur.uv}`;
+  sunriseEl.textContent = forecast[0].astro.sunrise;
+  sunsetEl.textContent = forecast[0].astro.sunset;
+
+  // humidity bar
+  humidityBar.style.width = Math.min(100, cur.humidity) + '%';
+  uvCircle.textContent = cur.uv;
+
+  // Extra info
+  extraInfo.innerHTML = `Air quality index (if present): ${data.current.air_quality ? Math.round(data.current.air_quality['us-epa-index'] || 0) : 'N/A'}`;
+
+  // Forecast cards — 7 days
+  forecastRow.innerHTML = '';
+  const labels = [], maxTemps = [], minTemps = [];
+  forecast.forEach(day => {
+    const date = new Date(day.date);
+    const weekday = date.toLocaleDateString('en-GB',{weekday:'short'});
+    forecastRow.innerHTML += `
+      <div class="day-card">
+        <div style="font-weight:700">${weekday}</div>
+        <img src="https:${day.day.condition.icon}" alt="">
+        <div style="margin-top:6px;font-weight:600">${day.day.avgtemp_c}°C</div>
+        <div class="small">Min ${day.day.mintemp_c}° • Max ${day.day.maxtemp_c}°</div>
+      </div>
+    `;
+    labels.push(weekday);
+    maxTemps.push(day.day.maxtemp_c);
+    minTemps.push(day.day.mintemp_c);
+  });
+
+  // Chart.js update (min/max)
+  const ctx = document.getElementById('tempChart').getContext('2d');
+  if(chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets:[
+        {label:'Max °C', data:maxTemps, borderColor:'#ff4e50', backgroundColor:'rgba(255,78,80,0.12)', tension:0.4, pointRadius:6, pointHoverRadius:10},
+        {label:'Min °C', data:minTemps, borderColor:'#1f8ef1', backgroundColor:'rgba(31,142,241,0.12)', tension:0.4, pointRadius:6, pointHoverRadius:10}
+      ]
+    },
+    options:{
+      responsive:true,
+      plugins:{
+        legend:{labels:{color:getComputedStyle(document.body).color}},
+        tooltip:{mode:'index', intersect:false, animation:{duration:250}}
+      },
+      interaction:{mode:'nearest',axis:'x',intersect:false},
+      scales:{
+        x:{ticks:{color:getComputedStyle(document.body).color}},
+        y:{ticks:{color:getComputedStyle(document.body).color}}
+      }
+    }
+  });
+
+  // Alerts
+  if(data.alerts && data.alerts.alert && data.alerts.alert.length){
+    alertsDiv.style.display = 'block';
+    alertsDiv.innerHTML = data.alerts.alert.map(a => `<div><strong>${a.headline}</strong><div style="margin-top:6px">${a.msg || a.desc || ''}</div></div>`).join('<hr style="border:none;border-top:1px solid rgba(255,255,255,0.06);margin:8px 0">');
+  } else {
+    alertsDiv.style.display = 'none';
+    alertsDiv.innerHTML = '';
+  }
+
+  // set gradient + particles based on condition
+  const cond = cur.condition.text.toLowerCase();
+  setGradientForCondition(cond);
+  applyParticlesForCondition(cond);
+
+  weatherInfoEl.style.display = 'block';
+}
+
+/* ===============================
+   Map condition to particles & gradient
+   =============================== */
+function applyParticlesForCondition(cond){
+  // clear previous
+  particleMode = null; clearParticles();
+
+  if(cond.includes('rain') || cond.includes('drizzle') || cond.includes('thunder')){
+    particleMode = 'rain';
+    spawnRain(180);
+  } else if(cond.includes('snow') || cond.includes('sleet') || cond.includes('blizzard')){
+    particleMode = 'snow';
+    spawnSnow(120);
+  } else if(cond.includes('sun') || cond.includes('clear')){
+    particleMode = 'sun';
+    // sun mode draws subtle soft glow
+  } else if(cond.includes('cloud') || cond.includes('overcast')){
+    particleMode = 'clouds';
+    spawnClouds(5);
+  } else {
+    particleMode = null;
+    clearParticles();
+  }
+}
+
+/* ===============================
+   Controls: search & geolocation
+   =============================== */
+function getWeather(){
+  const city = document.getElementById('cityInput').value.trim();
+  if(!city){ alert('Please enter a city name'); return; }
+  fetchWeather(`q=${encodeURIComponent(city)}`);
+}
+
+function getLocationWeather(){
+  if(!navigator.geolocation){ alert('Geolocation not supported'); return; }
+  loadingEl.textContent = 'Getting location...';
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude;
+    const lon = pos.coords.longitude;
+    fetchWeather(`q=${lat},${lon}`);
+  }, err => {
+    loadingEl.textContent = '';
+    alert('Location access denied or timed out.');
+  }, {timeout:12000});
+}
+
+/* Auto-run location on load if user allows */
+window.onload = function(){
+  // attempt to get location; if denied, UI will remain and user can search
+  try{ getLocationWeather(); } catch(e){ console.warn('Auto geolocation failed'); }
+}
+
+/* Dark mode toggle */
+const modeBtn = document.getElementById('modeBtn');
+modeBtn.addEventListener('click', () => {
+  document.body.classList.toggle('dark');
+  modeBtn.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+});
+
+/* expose setGradientForCondition to earlier block */
+function setGradientForCondition(cond){
+  if(cond.includes('rain') || cond.includes('drizzle')) document.body.style.background = 'linear-gradient(135deg,#485563,#29323c)';
+  else if(cond.includes('snow')) document.body.style.background = 'linear-gradient(135deg,#E0EAFC,#CFDEF3)';
+  else if(cond.includes('sun') || cond.includes('clear')) document.body.style.background = 'linear-gradient(135deg,#f6d365,#fda085)';
+  else if(cond.includes('cloud') || cond.includes('overcast')) document.body.style.background = 'linear-gradient(135deg,#bdc3c7,#2c3e50)';
+  else document.body.style.background = 'linear-gradient(135deg,#74ebd5,#ACB6E5)';
+}
+
+/* ===============================
+   Kick off a small FPS-limited loop to update particle system,
+   reusing the same animation frame loop above (uses particleMode).
+   =============================== */
+(function particleStarter(){
+  let prev = performance.now();
+  function tick(now){
+    const dt = (now - prev)/1000;
+    prev = now;
+    // nothing else needed: main loop draws based on particleMode and particles array
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+
+</script>
+</body>
+</html>
